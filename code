@@ -1,0 +1,72 @@
+%%writefile app.py
+import streamlit as st
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+import datetime
+
+st.set_page_config(page_title="Task 3 Chatbot", page_icon="🤖")
+
+st.title("🤖 Customer Support Bot")
+st.markdown("Ask me anything! (Hybrid: AI + Rules)")
+
+@st.cache_resource
+def load_model():
+    # Using 'medium' model for better chat (or 'small' if internet is slow)
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+    model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
+    return tokenizer, model
+
+with st.spinner("Loading AI..."):
+    tokenizer, model = load_model()
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+for message in st.session_state.history:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+user_input = st.chat_input("Type your message...")
+
+if user_input:
+    st.session_state.history.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # --- UPDATED "BRAIN IMPLANT" (LOGIC LAYER) ---
+    bot_output = ""
+    input_lower = user_input.lower()
+    now = datetime.datetime.now()
+
+    # Case 1: Asking for TIME
+    if "time" in input_lower:
+        bot_output = f"The current time is {now.strftime('%I:%M %p')}."
+    
+    # Case 2: Asking for DATE
+    elif "date" in input_lower or "today" in input_lower:
+        bot_output = f"Today is {now.strftime('%A, %B %d, %Y')}."
+
+    # Case 3: Let the AI handle everything else
+    else:
+        new_user_input_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
+        bot_input_ids = new_user_input_ids
+
+        chat_history_ids = model.generate(
+            bot_input_ids, 
+            max_length=1000, 
+            pad_token_id=tokenizer.eos_token_id,
+            no_repeat_ngram_size=3,       
+            do_sample=True, 
+            top_k=100, 
+            top_p=0.7,
+            temperature=0.8
+        )
+        bot_output = tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)
+
+    # Fallback if AI is silent
+    if not bot_output:
+        bot_output = "I didn't quite catch that. Can you rephrase?"
+
+    st.session_state.history.append({"role": "assistant", "content": bot_output})
+    with st.chat_message("assistant"):
+        st.markdown(bot_output)
